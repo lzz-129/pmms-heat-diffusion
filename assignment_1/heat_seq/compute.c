@@ -7,105 +7,118 @@
 
 /// Replace/erase the following line:
 #include "ref1.c"
-/** 
-*location:
-***********
-*****123***
-*****405***
-*****678***
-***********
-**/
-struct location{
-    int loc_0;
-    int loc_1;
-    int loc_2;
-    int loc_3;
-    int loc_4;
-    int loc_5;
-    int loc_6;
-    int loc_7;
-    int loc_8;
-};
-void to_result(double* t, struct results *r, int length){
-    double max, min;
-    max = t[0];
-    min = t[0];
-    double sum = 0.0;
-    for(int len = 0; len < length; len++){
-        if(t[len]>max){
-            max = t[len];
-        }
-        if(t[len]<min){
-            min = t[len];
-        }
-        sum += t[len];
-    }
-    r->tmax = max;
-    r->tmin = min;
-    r->maxdiff = max - min;
-    r->tavg = sum/length;
-}
+
+//void generate_report();
+void find_extvalue(struct results *r, double *tinit_cur);
+int is_convergence(double* c, double* l, int M, int N);
 void do_compute(const struct parameters* p, struct results *r)
 {
-    /// Replace/erase the following line:
-    //#include "ref2.c"
-    /*initialize result*/
-    r->maxdiff = -1.0;
-    r->niter = 0;
-    r->tavg = 0.0;
-    r->time = 0.0;
-    r->tmax = 0.0;
-    r->tmin = 0.0;
+    int N = p->N; //rows
+    int M = p->M; //columns
+    int iterations = 0;
+    double weight_dir = sqrt(2)/(sqrt(2)+1);
+    double weight_dia = 1/(sqrt(2)+1);
+    double t_max, t_min, sum;
+    int convergence = 1;
 
-    /*creat a temp data to store last temperature*/
-    double* tmp = calloc(p->N * p->M, sizeof(double));
-    double* heat_iter = calloc(p->N * p->M, sizeof(double));
-    memcpy(tmp, p->tinit, p->M*p->N);
-    memcpy(heat_iter, p->tinit, p->M*p->N);
-    double t_self; //self-temperature
-    double t_dir; //temperature from direct neighbours
-    double t_dia; //temperature from diagonal neighbours
-    double weight_1 = sqrt(2)/(sqrt(2)+1);
-    double weight_2 = 1 - weight_1;
-    struct location loc;
-    clock_t t_start, t_end, t_last, t_cur;
+    struct timespec begin, end; //time
+
+    r->tmax = p->io_tmax;
+    r->tmin = p->io_tmin;
+    r->maxdiff = r->tmax - r->tmin;
+
+    /*initilize temperature matrix*/
+    double* tinit_cur= calloc((N+2) * M, sizeof(double));
+    double* tinit_last = calloc((N+2) * M, sizeof(double));
+    memcpy(tinit_last, p->tinit, M*sizeof(double));
+    memcpy(tinit_last+M, p->tinit, M*N*sizeof(double));
+    memcpy(tinit_last+M*(N+1), p->tinit+M*(N-1), M*sizeof(double));
+    memcpy(tinit_cur, tinit_last, M*(N+2)*sizeof(double));
+    printf("%.2f", tinit_last[0]);
+    printf("%.2f", tinit_cur[0]);
+
+    /*initilize conduct matrix*/
+    double* conductivity = calloc(p->N * p->M, sizeof(double));
+    memcpy(conductivity+p->M, p->conductivity, M*N*sizeof(double));
     
-    t_start = clock();
-    for(int iter = 0; iter < p->maxiter; iter++){
-        for(int i =1; i<p->N-1; i++){
-            for(int j=0; j<p->M; j++){
-                //loc = (i*p->N) + (j%p->M);
-                loc.loc_0 = (i*p->N) + (j%p->M);
-                loc.loc_2 = ((i-1)*p->N) + ((j)%p->M);
-                loc.loc_3 = ((i-1)*p->N) + ((j+1)%p->M);
-                loc.loc_5 = (i*p->N) + ((j+1)%p->M);
-                loc.loc_7 = ((i+1)*p->N) + ((j)%p->M);
-                loc.loc_8 = ((i+1)*p->N) + ((j+1)%p->M);
-                if(j == 0){
-                    loc.loc_1 = ((i-1)*p->N) + p->M-1;
-                    loc.loc_6 = ((i+1)*p->N) + p->M-1;
-                    loc.loc_4 = (i*p->N) + p->M-1;
+    clock_gettime(CLOCK_MONOTONIC, &begin);
+    for(iterations=0; iterations < p->maxiter; iterations++){
+        
+        for(int i = 1; i <= N; i++){
+            for(int j = 0; j<M; j++){
+                int site_c = (i-1)*M + j;
+                int site = i*M + j;
+                int site_r = i*M + (j+1)%M;
+                int site_l = i*M + (j-1)%M;
+                if(j==0){
+                    site_l = i*M + (j-1+M)%M;
+                }
+                double c_dir = (1-conductivity[site_c])*weight_dir/4; //single conductivity weight from direct neighbor
+                double c_dia = (1-conductivity[site_c])*weight_dia/4; //single conductivity weight from diagonal neighbor
+                double tem_dir = tinit_last[site_l] + tinit_last[site_r] + tinit_last[site-M] + tinit_last[site+M];
+                double tem_dia = tinit_last[site_l-M] + tinit_last[site_l+M] + tinit_last[site_r-M] + tinit_last[site_r+M];
+                double tem_new = tinit_last[site]*conductivity[site_c] + tem_dir*c_dir + tem_dia*c_dia;   
+                if(fabs(tem_new - tinit_last[site]) < p->threshold){
+                    convergence = 1 * convergence;
                 }
                 else{
-                    loc.loc_1 = ((i-1)*p->N) + ((j-1)%p->M);
-                    loc.loc_4 = (i*p->N) + ((j-1)%p->M);
-                    loc.loc_6 = ((i+1)*p->N) + ((j-1)%p->M);
+                    convergence = 0;
                 }
-                t_self = tmp[loc.loc_0] * (*(p->conductivity+loc.loc_0));
-                t_dir = (tmp[loc.loc_2] + tmp[loc.loc_4] + tmp[loc.loc_5] + tmp[loc.loc_7])/4 * weight_1;
-                t_dia = (tmp[loc.loc_1] + tmp[loc.loc_3] + tmp[loc.loc_6] + tmp[loc.loc_8])/4 * weight_2;
-                heat_iter[loc.loc_0] = t_self + t_dir + t_dia; 
+                tinit_cur[site] = tem_new;   
             }
         }
-        if(iter%p->period == 0 && iter > 0){
-            t_cur = clock();
-            to_result(heat_iter, r, p->M*p->N);
-            r->niter = iter;
-            r->time = t_cur - t_last;
-            t_last = t_cur;
-            report_results(p, r);
+        if(iterations%p->period==0){
+            clock_gettime(CLOCK_MONOTONIC, &end);
+            r->time = (double)(end.tv_nsec-begin.tv_nsec) + (double)(end.tv_nsec-begin.tv_nsec)/1e9;
+            r->niter = iterations;
+            t_max = t_min = 0;
+            sum = 0;
+            for(int k=0; k<M*(N+2); k++){
+                if(tinit_cur[k] > t_max){
+                    t_max = tinit_cur[k];
+                }
+                if(tinit_cur[k] < t_min){
+                    t_min = tinit_cur[k];
+                }
+                sum += tinit_cur[k];
+            }
+            r->tmax = t_max;
+            r->tmin = t_min;
+            r->maxdiff = t_max - t_min;
+            r->tavg = (double) sum/(M*(N+2));
+            report_results(p,r);
         }
-        memcpy(tmp, heat_iter, p->M*p->N);
+        if(convergence) break;
+        memcpy(tinit_last, tinit_cur, (N+2)*M*sizeof(double));
+        //to_report(tinit_last);
     }
-    t_end = clock();
+    if(iterations%p->period>0){
+        clock_gettime(CLOCK_MONOTONIC, &end);
+        r->time = (double)(end.tv_nsec-begin.tv_nsec) + (double)(end.tv_nsec-begin.tv_nsec)/1e9;
+        r->niter = iterations;
+        t_max = t_min = 0;
+        sum = 0;
+        for(int k=0; k<M*(N+2); k++){
+            if(tinit_cur[k] > t_max){
+                t_max = tinit_cur[k];
+            }
+            if(tinit_cur[k] < t_min){
+                t_min = tinit_cur[k];
+            }
+            sum += tinit_cur[k];
+        }
+        r->tmax = t_max;
+        r->tmin = t_min;
+        r->maxdiff = t_max - t_min;
+        r->tavg = (double) sum/(M*(N+2));
+        //report_results(p,r);
+    }
+    //begin_picture(iterations/p->period+1, M, N, 0, 255);
+    //for(int i = 0; i < M*N; i++){
+    //    draw_point(i/M, i%M, tinit_last[i+M]);
+    //}
+    //end_picture();
+    free(tinit_cur);
+    free(tinit_last);
+    free(conductivity);
 }
