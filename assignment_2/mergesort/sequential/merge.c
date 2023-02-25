@@ -4,17 +4,13 @@
 #include <getopt.h>
 #include <stdio.h>
 #include <ctype.h>
-#include <omp.h>
+#include <string.h>
+//#include <omp.h>
 
 /* Ordering of the vector */
 typedef enum Ordering {ASCENDING, DESCENDING, RANDOM} Order;
 
 int debug = 0;
-
-/* Sort vector v of l elements using mergesort */
-void msort(int *v, long l){
-
-}
 
 void print_v(int *v, long l) {
     printf("\n");
@@ -25,6 +21,48 @@ void print_v(int *v, long l) {
         printf("%d ", v[i]);
     }
     printf("\n");
+}
+/*merge two arrays*/
+void merge(int start, int mid, int end, int* v, int* temp){
+    //int* temp = (int *)malloc((end-start) * sizeof(int));
+    int i = start;
+    int j = mid;
+    int k = start;
+    while(i<mid && j<end){
+        if(v[i]<= v[j]){
+            temp[k++] = v[i++];
+        }
+        else{
+            temp[k++] = v[j++];
+        }
+    }
+    while(i < mid){
+        temp[k++] = v[i++];
+    }
+    while(j<end){
+        temp[k++] = v[j++];
+    }
+    memcpy(v+start, temp+start, (end-start)*sizeof(int));
+}
+/*split the array until the length of subarray is 1*/
+void mergeSort_UpToDown(int* v, int left, long right, long l){
+    int *temp = (int*)malloc(l * sizeof(int));
+    for(int i = 1; i < right; i *= 2){
+        for(int j = 0; j < right-left; j += (i*2)){
+            if(j+i*2 < right){
+                merge(j, j+i, j+i*2, v, temp);
+            }
+            else{
+                merge(j, j+i, right, v, temp);
+            }
+            
+        }
+    }
+}
+
+/* Sort vector v of l elements using mergesort, up to down*/
+void msort(int *v, long l){
+    mergeSort_UpToDown(v, 0, l, l);
 }
 
 int main(int argc, char **argv) {
@@ -87,7 +125,6 @@ int main(int argc, char **argv) {
         fprintf(stderr, "Malloc failed...\n");
         return -1;
     }
-
     /* Fill vector. */
     switch(order){
         case ASCENDING:
