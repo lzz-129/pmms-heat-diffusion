@@ -6,13 +6,13 @@
 #include <ctype.h>
 #include <string.h>
 #include <omp.h>
-
 /* Ordering of the vector */
 typedef enum Ordering {ASCENDING, DESCENDING, RANDOM} Order;
 
 int debug = 0;
+int num_th = 0;
 
-/*merge two arrays*/
+/*
 void merge(int start, int mid, int end, int* v, int* temp){
     //int* temp = (int *)malloc((end-start) * sizeof(int));
     int i = start;
@@ -34,8 +34,6 @@ void merge(int start, int mid, int end, int* v, int* temp){
     }
     memcpy(v+start, temp+start, (end-start)*sizeof(int));
 }
-
-/*split the array until the length of subarray is 1*/
 void mergeSort_UpToDown(int* v, int left, long right, long l){
     int *temp = (int*)malloc(l * sizeof(int));
     int i, j;
@@ -51,11 +49,56 @@ void mergeSort_UpToDown(int* v, int left, long right, long l){
             
         }
     }
+}*/
+
+/*merge two list*/
+void merge(int* v, long left, long mid, long right, int* temp){
+    long i = left;
+    long j = mid;
+    long k = left;
+    while(i<mid && j<right){
+        if(v[i]<=v[j]){
+            temp[k++] = v[i++];
+        }
+        else{
+            temp[k++] = v[j++];
+        }
+    }
+    while(i < mid){
+        temp[k++] = v[i++];
+    }
+    while(j < right){
+        temp[k++] = v[j++];
+    }
+    memcpy(v+left ,temp+left,(right-left)*sizeof(int));
+}
+/*split the array untill the length of sub-array is 1*/
+void mergeSort_UpToDown(int* v, long left, long right, int* temp){
+    if(right-left <= 1){
+        return;
+    }
+    long mid = left + (right-left)/2;
+    #pragma omp parallel sections num_threads(num_th)
+    {
+        #pragma omp section
+        {
+            mergeSort_UpToDown(v, left, mid, temp);
+        }
+        #pragma omp section
+        {
+            mergeSort_UpToDown(v, mid, right, temp);
+        }   
+    }
+    merge(v, left, mid, right, temp);
 }
 
 /* Sort vector v of l elements using mergesort, up to down*/
 void msort(int *v, long l){
-    mergeSort_UpToDown(v, 0, l, l);
+    int *temp = (int*)malloc(l*sizeof(int));
+    long left = 0;
+    long right = l;
+    mergeSort_UpToDown(v, left, right, temp);
+    free(temp);
 }
 
 void print_v(int *v, long l) {
@@ -153,7 +196,8 @@ int main(int argc, char **argv) {
         print_v(vector, length);
     }
 
-    omp_set_num_threads(num_threads);
+    //omp_set_num_threads(num_threads);
+    num_th = num_threads;
 
     clock_gettime(CLOCK_MONOTONIC, &before);
 
@@ -169,6 +213,7 @@ int main(int argc, char **argv) {
     if(debug) {
         print_v(vector, length);
     }
+    printf("Mergesort took: % .6e seconds \n", time);
 
     return 0;
 }
