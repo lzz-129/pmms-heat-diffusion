@@ -4,6 +4,7 @@
 #include <getopt.h>
 #include <stdio.h>
 #include <ctype.h>
+#include <string.h>
 #include <omp.h>
 
 /* Ordering of the vector */
@@ -37,9 +38,10 @@ void merge(int start, int mid, int end, int* v, int* temp){
 /*split the array until the length of subarray is 1*/
 void mergeSort_UpToDown(int* v, int left, long right, long l){
     int *temp = (int*)malloc(l * sizeof(int));
-    for(int i = 1; i < right; i *= 2){
+    int i, j;
+    for(i = 1; i < right; i *= 2){
         #pragma omp parallel for private(j) shared(right,i)
-        for(int j = 0; j < right-left; j += (i*2)){
+        for(j = 0; j < right-left; j += (i*2)){
             if(j+i*2 < right){
                 merge(j, j+i, j+i*2, v, temp);
             }
