@@ -192,7 +192,7 @@ int main(int argc, char **argv) {
     double time = (double)(after.tv_sec - before.tv_sec) +
                   (double)(after.tv_nsec - before.tv_nsec) / 1e9;
 
-    //printf("Mergesort took: % .6e seconds \n", time);
+    printf("Mergesort took: % .6e seconds \n", time);
 
     if(debug) {
         print_v(vector, length);

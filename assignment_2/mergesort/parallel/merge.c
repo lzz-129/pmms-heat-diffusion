@@ -10,7 +10,7 @@
 typedef enum Ordering {ASCENDING, DESCENDING, RANDOM} Order;
 
 int debug = 0;
-int num_th = 0;
+int nthrds = 0;
 
 /*
 void merge(int start, int mid, int end, int* v, int* temp){
@@ -78,17 +78,14 @@ void mergeSort_UpToDown(int* v, long left, long right, int* temp){
         return;
     }
     long mid = left + (right-left)/2;
-    #pragma omp parallel sections num_threads(num_th)
-    {
-        #pragma omp section
-        {
-            mergeSort_UpToDown(v, left, mid, temp);
-        }
-        #pragma omp section
-        {
-            mergeSort_UpToDown(v, mid, right, temp);
-        }   
-    }
+
+    #pragma omp task firstprivate(mid, left, right, v, temp)
+    mergeSort_UpToDown(v, left, mid, temp);
+
+    #pragma omp task firstprivate(mid, left, right, v, temp)
+    mergeSort_UpToDown(v, mid, right, temp);
+        
+    #pragma omp taskwait
     merge(v, left, mid, right, temp);
 }
 
@@ -97,7 +94,11 @@ void msort(int *v, long l){
     int *temp = (int*)malloc(l*sizeof(int));
     long left = 0;
     long right = l;
-    mergeSort_UpToDown(v, left, right, temp);
+    #pragma omp parallel
+    {
+        #pragma omp single
+        mergeSort_UpToDown(v, left, right, temp);
+    }
     free(temp);
 }
 
@@ -197,7 +198,8 @@ int main(int argc, char **argv) {
     }
 
     //omp_set_num_threads(num_threads);
-    num_th = num_threads;
+    nthrds = num_threads;
+    omp_set_num_threads(nthrds);
 
     clock_gettime(CLOCK_MONOTONIC, &before);
 
