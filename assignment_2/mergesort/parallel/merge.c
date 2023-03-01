@@ -80,11 +80,12 @@ void mergeSort_UpToDown(int* v, long left, long right, int* temp){
         return;
     }
     long mid = left + (right-left)/2;
+    //printf("left:%ld,mid:%ld,right:%ld,t_n:%d\n", left,mid,right,omp_get_thread_num());
 
-    #pragma omp task shared(v),firstprivate(mid, left, right) if(right-left>TASK_SIZE)
+    #pragma omp task shared(v) firstprivate(mid, left, right) if (right-left>TASK_SIZE)
     mergeSort_UpToDown(v, left, mid, temp);
 
-    #pragma omp task shared(v),firstprivate(mid, left, right) if(right-left>TASK_SIZE)
+    #pragma omp task shared(v) firstprivate(mid, left, right) if (right-left>TASK_SIZE)
     mergeSort_UpToDown(v, mid, right, temp);
         
     #pragma omp taskwait

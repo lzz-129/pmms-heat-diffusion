@@ -197,7 +197,7 @@ int main(int argc, char **argv) {
     if(debug) {
         print_v(vector, length);
     }
-    printf("Mergesort took: % .6e seconds \n", time);
+    //printf("Mergesort took: % .6e seconds \n", time);
 
     return 0;
 }
