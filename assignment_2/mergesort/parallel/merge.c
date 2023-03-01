@@ -9,6 +9,8 @@
 /* Ordering of the vector */
 typedef enum Ordering {ASCENDING, DESCENDING, RANDOM} Order;
 
+#define TASK_SIZE 1000
+
 int debug = 0;
 int nthrds = 0;
 
@@ -79,10 +81,10 @@ void mergeSort_UpToDown(int* v, long left, long right, int* temp){
     }
     long mid = left + (right-left)/2;
 
-    #pragma omp task firstprivate(mid, left, right, v, temp)
+    #pragma omp task shared(v),firstprivate(mid, left, right) if(right-left>TASK_SIZE)
     mergeSort_UpToDown(v, left, mid, temp);
 
-    #pragma omp task firstprivate(mid, left, right, v, temp)
+    #pragma omp task shared(v),firstprivate(mid, left, right) if(right-left>TASK_SIZE)
     mergeSort_UpToDown(v, mid, right, temp);
         
     #pragma omp taskwait
@@ -197,6 +199,7 @@ int main(int argc, char **argv) {
         print_v(vector, length);
     }
 
+    omp_set_dynamic(0);
     //omp_set_num_threads(num_threads);
     nthrds = num_threads;
     omp_set_num_threads(nthrds);
@@ -215,7 +218,7 @@ int main(int argc, char **argv) {
     if(debug) {
         print_v(vector, length);
     }
-    printf("Mergesort took: % .6e seconds \n", time);
+    //printf("Mergesort took: % .6e seconds \n", time);
 
     return 0;
 }

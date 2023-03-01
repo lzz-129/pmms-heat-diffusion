@@ -3,7 +3,7 @@ PRJ=$(CURR_DIR)
 SRC=$(filter-out $(wildcard ref*.c), $(wildcard *.c))
 OBJ=$(patsubst %.c,%.o,$(SRC))
 
-CC=clang
+CC=gcc
 INCLUDES=-I../../include
 ifndef DEBUG
 CFLAGS=-O2 -std=gnu99 -fopenmp
