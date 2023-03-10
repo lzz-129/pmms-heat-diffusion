@@ -71,7 +71,7 @@ void do_compute(const struct parameters* p, struct results *r)
             clock_gettime(CLOCK_MONOTONIC, &end);
             r->time = (double)(end.tv_nsec-begin.tv_nsec) + (double)(end.tv_nsec-begin.tv_nsec)/1e9;
             r->niter = iterations;
-            t_max = t_min = 0;
+            t_max = t_min = tinit_cur[0];
             sum = 0;
             for(int k=0; k<M*(N+2); k++){
                 if(tinit_cur[k] > t_max){
@@ -96,7 +96,7 @@ void do_compute(const struct parameters* p, struct results *r)
         clock_gettime(CLOCK_MONOTONIC, &end);
         r->time = (double)(end.tv_nsec-begin.tv_nsec) + (double)(end.tv_nsec-begin.tv_nsec)/1e9;
         r->niter = iterations;
-        t_max = t_min = 0;
+        t_max = t_min = tinit_cur[0];
         sum = 0;
         for(int k=0; k<M*(N+2); k++){
             if(tinit_cur[k] > t_max){

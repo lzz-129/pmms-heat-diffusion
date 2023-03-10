@@ -4,6 +4,7 @@
 #include <getopt.h>
 #include <stdio.h>
 #include <ctype.h>
+#include <string.h>
 #include <omp.h>
 #include <assert.h>
 
@@ -11,9 +12,110 @@
 typedef enum Ordering {ASCENDING, DESCENDING, RANDOM} Order;
 
 int debug = 0;
+int num_threads = 1;
+/* Sort vector v of l elements using mergesort */
+void msort(int *v, long l){
+    long loop_num=l/2l,width=1l;
+    int *b = calloc(l , sizeof(int));
+    do{
+        //parallel
+        // for task
+        width*=2;
+        #pragma omp taskloop num_tasks(num_threads)
+        for (long left = 0l; left < l; left+=width){// default(none) shared(b) shared(v) firstprivate(left){
+            long right=left+width<l?left+width:l,mid=left+width/2,i=left,j=left,k=mid;
+            if (mid>=l){
+                while (j<l){
+                    b[i++]=v[j++];
+                }
+            } else{
+                while (j<mid&&k<right){
+                    b[i++]=v[j]<=v[k]?v[j++]:v[k++];
+                }
+                while (j<mid){
+                    b[i++]=v[j++];
+                }
+                while (k<right){
+                    b[i++]=v[k++];
+                }
+            }
 
-void vecsort(/* ...  */){
+
+        }
+        memcpy(v, b, l * sizeof(int ));
+    }while (width<l);
+    free(b);
+    b=NULL;
+}
+
+
+int compare_vec(int *v1, int *v2, int *v_l, long j, long k){
+    long i=0l,l1=v_l[j],l2=v_l[k];
+    int r=-1;
+    if (l1!=l2) return l1<l2?1:0;
+    while (i<l1 && i<l2){
+        if(v1[i]!=v2[i]) {
+            return v1[i]<v2[i]?1:0; //1: ascending
+        }
+        i++;
+    }
+    return 1;
+
+}
+
+void vecsort(int **v, int *v_l, long l){
     //TODO: Just Do It. Don't let your dreams be dreams.
+    long loop_num=l/2l,width=1l,left,mid,right,j,k,i;
+    int **v_order = (int **)  calloc(l , sizeof(int*));
+    int compare_r;
+    int *len_v = calloc(l , sizeof(int));
+    omp_set_num_threads( num_threads );
+    #pragma omp parallel
+    #pragma omp single
+    {
+        for (int m = 0; m < l; m++) {
+            //#pragma omp task
+            msort(v[m], v_l[m]);//sort inner
+        }
+
+        do{
+            //parallel
+            width*=2;
+            #pragma omp taskloop num_tasks(num_threads)
+            for (long left = 0l; left < l; left+=width) {
+                right=left+width<l?left+width:l,mid=left+width/2,i=left,j=left,k=mid;
+                if(mid<l){
+                    while (j<mid&&k<right){
+                        compare_r=compare_vec(v[j],v[k],v_l,j,k);
+                        len_v[i] = compare_r==1 ? v_l[j]:v_l[k];
+                        v_order[i++]= compare_r==1?v[j++]:v[k++];
+                    }
+                    while (j<mid){
+                        len_v[i] = v_l[j];
+                        v_order[i++]=v[j++];
+                    }
+                    while (k<right){
+                        len_v[i] = v_l[k];
+                        v_order[i++]=v[k++];
+                    }
+                } else{
+                    while (j<l){
+                        len_v[i] = v_l[j];
+                        v_order[i++]=v[j++];
+                    }
+                }
+
+
+            }
+            /*
+            if(debug)
+                print_v(b, l);*/
+            memcpy(v, v_order, l * sizeof(int* ));
+            memcpy(v_l, len_v, l * sizeof(int));
+        }while (width<l);
+    }
+
+
 }
 
 void print_v(int **vector_vectors, int *vector_lengths, long length_outer) {
@@ -35,7 +137,7 @@ int main(int argc, char **argv) {
     int c;
     int seed = 42;
     long length_outer = 1e4;
-    int num_threads = 1;
+
     Order order = ASCENDING;
     int length_inner_min = 100;
     int length_inner_max = 1000;
@@ -136,7 +238,7 @@ int main(int argc, char **argv) {
     clock_gettime(CLOCK_MONOTONIC, &before);
 
     /* Sort */
-    vecsort(/* ... */);
+    vecsort(vector_vectors, vector_lengths, length_outer);
 
     clock_gettime(CLOCK_MONOTONIC, &after);
     double time = (double)(after.tv_sec - before.tv_sec) +
@@ -144,10 +246,10 @@ int main(int argc, char **argv) {
 
     printf("Vecsort took: % .6e seconds \n", time);
 
+
     if(debug) {
         print_v(vector_vectors, vector_lengths, length_outer);
     }
 
     return 0;
 }
-

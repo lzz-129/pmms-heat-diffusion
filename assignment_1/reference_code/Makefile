@@ -1,15 +1,17 @@
 CURR_DIR=$(notdir $(basename $(shell pwd)))
 PRJ=$(CURR_DIR)
-SRC=$(filter-out $(wildcard ref*.c), $(wildcard *.c))
+REF=ref1.c ref2.c
+
+SRC=$(filter-out $(REF), $(wildcard *.c))
 OBJ=$(patsubst %.c,%.o,$(SRC))
 
 CC=gcc
 INCLUDES=-I../../include
 ifndef DEBUG
-CFLAGS=-Ofast -std=gnu99 -fopenmp
+CFLAGS=-O2 -std=gnu99 -lm
 LIB=
 else
-CFLAGS=-O0 -g3 -std=gnu99 -fopenmp
+CFLAGS=-O0 -g3 -std=c99
 LIB=
 endif
 

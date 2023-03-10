@@ -1,7 +1,9 @@
 #MODIFY the following variables (STUDENTID1, STUDENTID2, GROUP) with your infos
-STUDENTID1=HERE_ID_OF_THE_STUDENT
-STUDENTID2=HERE_ID_OF_THE_STUDENT
-GROUP=HERE_GROUP_ID
+STUDENTID1=14088495
+STUDENTID2=14724545
+STUDENTID3=14528177
+STUDENTID4=14723670
+GROUP=8
 
 
 
@@ -25,7 +27,7 @@ $(basename $(filter %.c,$(wildcard demo/*)) ): $(filter-out obj/main.o, $(OBJ))
 
 submission_%:
 	$(MAKE) -C assignment_$(patsubst submission_%,%,$@) clean
-	tar czfh heat_assignment_$(patsubst submission_%,%,$@)_group_$(GROUP)_$(STUDENTID1)_$(STUDENTID2).tar.gz assignment_$(patsubst submission_%,%,$@)
+	tar czfh heat_assignment_$(patsubst submission_%,%,$@)_group_$(GROUP)_$(STUDENTID1)_$(STUDENTID2)_$(STUDENTID3)_$(STUDENTID4).tar.gz assignment_$(patsubst submission_%,%,$@)
 
 clean:
 	-rm -f *.tar.gz
