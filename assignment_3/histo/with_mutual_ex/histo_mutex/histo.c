@@ -5,6 +5,15 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <errno.h>
+#include <pthread.h>
+
+struct param{
+    int* histo;
+    int* image;
+    int start;
+    int len;
+};
+pthread_mutex_t mutex;
 
 void die(const char *msg){
     if (errno != 0) 
@@ -39,7 +48,7 @@ void read_image(const char * image_path, int num_rows, int num_cols, int * image
         fscanf(f, "%u", &maxv) != 1) die("invalid input");
 
     if (imgw != num_cols || imgh != num_rows) {
-        fprintf(stderr, "input data size (%ux%u) does not match cylinder size (%zux%zu)\n",
+        fprintf(stderr, "input data size (%ux%u) does not match cylinder size (%dx%d)\n",
                 imgw, imgh, num_cols, num_rows);
         die("invalid input");
     }
@@ -53,14 +62,17 @@ void read_image(const char * image_path, int num_rows, int num_cols, int * image
 }
 
 void print_histo(int * histo){
+    int sum = 0;
 	for (int i = 0; i < 256; ++i)
 	{	
 		if(i != 0 && (i % 10 == 0)) {
             printf("\n");
         }
 		printf("%d ", histo[i]);
+        sum += histo[i];
 	}
     printf("\n");
+    printf("sum:%d\n", sum);
 }
 
 void print_image(int num_rows, int num_cols, int * image){
@@ -74,8 +86,17 @@ void print_image(int num_rows, int num_cols, int * image){
 	printf("\n");
 }
 
-void histogram(int * histo, int * image){
+void* histogram(void* p_data){
     //TODO: For Students
+    struct param* myparam = (struct param*) p_data;
+    int res = 0;
+    pthread_mutex_lock(&mutex);
+    for(int i = myparam->start; i < myparam->start+myparam->len; i++){
+        res = myparam->image[i];
+        myparam->histo[res] += 1;
+    }
+    pthread_mutex_unlock(&mutex);
+    return NULL;
 }
 
 int main(int argc, char *argv[]){
@@ -138,16 +159,36 @@ int main(int argc, char *argv[]){
 
     clock_gettime(CLOCK_MONOTONIC, &before);
     /* Do your thing here */
+    int len = num_cols*num_rows;
+    int seg = (int) num_cols*num_rows/num_threads;
+    struct param* my_param;
+    pthread_t threads[num_threads];
+    pthread_mutex_init(&mutex, 0);
+    for(int t = 0; t<num_threads; t++){
+        my_param = (struct param*)malloc(sizeof(struct param));
+        my_param->histo = histo;
+        my_param->image = image;
+        my_param->start = t*seg;
+        if(my_param->start+seg < len){
+            my_param->len = seg;
+        }
+        else{
+            my_param->len = len - my_param->start;
+        }
+        pthread_create(&threads[t], NULL, *histogram, my_param);
+    }
+    for(int t = 0; t<num_threads; t++){
+        pthread_join(threads[t], NULL);
+    }
+    pthread_mutex_destroy(&mutex);
 
-
-    histogram(histo, image);
+    //histogram(histo, image, num_cols*num_rows);
 
     /* Do your thing here */
 
     if (debug){
     	print_histo(histo);
     }
-
     clock_gettime(CLOCK_MONOTONIC, &after);
     double time = (double)(after.tv_sec - before.tv_sec) +
                   (double)(after.tv_nsec - before.tv_nsec) / 1e9;
