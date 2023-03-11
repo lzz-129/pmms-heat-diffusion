@@ -47,7 +47,7 @@ void read_image(const char * image_path, int num_rows, int num_cols, int * image
         fscanf(f, "%u", &maxv) != 1) die("invalid input");
 
     if (imgw != num_cols || imgh != num_rows) {
-        fprintf(stderr, "input data size (%ux%u) does not match cylinder size (%zux%zu)\n",
+        fprintf(stderr, "input data size (%ux%u) does not match cylinder size (%dx%d)\n",
                 imgw, imgh, num_cols, num_rows);
         die("invalid input");
     }
@@ -87,10 +87,8 @@ void* histogram(void* p_data){
     struct param* myparam = (struct param*) p_data;
     int res = 0;
     for(int i = myparam->start; i < myparam->start+myparam->len; i++){
-        __sync_add_and_fetch(&res, myparam->image[i]);
+       res = myparam->image[i];
         __sync_fetch_and_add((myparam->histo)+res, 1);
-        //res = myparam->image[i];
-        //myparam->histo[res] += 1;
     }
     return NULL;
 }

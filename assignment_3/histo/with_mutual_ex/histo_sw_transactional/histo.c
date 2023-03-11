@@ -5,6 +5,14 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <errno.h>
+#include <pthread.h>
+
+struct param{
+    int* histo;
+    int* image;
+    int start;
+    int len;
+};
 
 void die(const char *msg){
     if (errno != 0) 
@@ -74,8 +82,20 @@ void print_image(int num_rows, int num_cols, int * image){
 	printf("\n");
 }
 
-void histogram(int * histo, int * image){
+void* histogram(void* p_data){
     //TODO: For Students
+    struct param* myparam = (struct param*) p_data;
+    int res = 0;
+    
+    for(int i = myparam->start; i < myparam->start+myparam->len; i++){
+        __transaction_atomic{
+            res = myparam->image[i];
+        myparam->histo[res] += 1;
+        }
+        
+    }
+    
+    return NULL;
 }
 
 int main(int argc, char *argv[]){
@@ -138,9 +158,29 @@ int main(int argc, char *argv[]){
 
     clock_gettime(CLOCK_MONOTONIC, &before);
     /* Do your thing here */
+    /* Do your thing here */
+    int len = num_cols*num_rows;
+    int seg = (int) num_cols*num_rows/num_threads;
+    struct param* my_param;
+    pthread_t threads[num_threads];
+    for(int t = 0; t<num_threads; t++){
+        my_param = (struct param*)malloc(sizeof(struct param));
+        my_param->histo = histo;
+        my_param->image = image;
+        my_param->start = t*seg;
+        if(my_param->start+seg < len){
+            my_param->len = seg;
+        }
+        else{
+            my_param->len = len - my_param->start;
+        }
+        pthread_create(&threads[t], NULL, *histogram, my_param);
+    }
+    for(int t = 0; t<num_threads; t++){
+        pthread_join(threads[t], NULL);
+    }
 
-
-    histogram(histo, image);
+    //histogram(histo, image);
 
     /* Do your thing here */
 
