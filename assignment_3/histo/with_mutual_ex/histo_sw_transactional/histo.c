@@ -91,7 +91,7 @@ void* histogram(void* p_data){
         res = myparam->image[i];
         tmp_histo[res] += 1;
     }
-    for(int i = 0;i<256 i++){
+    for(int i = 0;i<256;i++){
         __transaction_atomic{
             myparam->histo[i] += tmp_histo[i];
         }
