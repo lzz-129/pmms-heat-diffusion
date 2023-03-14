@@ -90,7 +90,6 @@ void* histogram(void* p_data){
     for(int i = myparam->start; i < myparam->start+myparam->len; i++){
         res = myparam->image[i];
         tmp_histo[res]+=1;
-        myparam->histo[res] += 1;
     }
     for(int i = 0; i < 256; i++){
         myparam->histo[i] += tmp_histo[i];
