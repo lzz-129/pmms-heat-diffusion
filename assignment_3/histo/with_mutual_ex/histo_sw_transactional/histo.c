@@ -35,7 +35,7 @@ void read_image(const char * image_path, int num_rows, int num_cols, int * image
     unsigned imgw, imgh, maxv, v;
     size_t i;
 
-	//printf("Reading PGM data from %s...\n", image_path);
+	printf("Reading PGM data from %s...\n", image_path);
 
 	if (!(f = fopen(image_path, "r"))) die("fopen");
 
@@ -195,5 +195,5 @@ int main(int argc, char *argv[]){
     double time = (double)(after.tv_sec - before.tv_sec) +
                   (double)(after.tv_nsec - before.tv_nsec) / 1e9;
 
-    printf("% .6e\n", time);
+    printf("Histo took: % .6e seconds \n", time);
 }

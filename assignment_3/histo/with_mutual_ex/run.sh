@@ -1,5 +1,8 @@
 #!/bin/bash
-for i in {1..16}
+IMG=$HOME/pmms-heat-diffusion/images/pat1_"$2"x"$3".pgm
+ls $IMG
+for i in {1..32}
 do
-   $1 ../../../images/pat1_100x150.pgm -n 150 -m 100 -p "$i"
+   "$1" -i $IMG -m "$2" -n "$3" -p "$i" | grep Histo |awk '{print($3)}'
 done
+
