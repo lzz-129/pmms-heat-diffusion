@@ -185,7 +185,7 @@ int main(int argc, char *argv[]){
     }
     for(int i = 0; i<256; i++){
         //sem_unlink("sems[i]"); //for mac
-        sem_init(&sems[i], 0, 1); //for gcc
+        sem_destroy(&sems[i]); //for gcc
     }
     //histogram(histo, image);
     /* Do your thing here */
