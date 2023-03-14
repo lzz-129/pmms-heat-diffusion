@@ -87,15 +87,20 @@ void print_image(int num_rows, int num_cols, int * image){
 void* histogram(void* p_data){
     //TODO: For Students
     struct param* myparam = (struct param*) p_data;
+    int * tmp_histo = (int *) calloc(256, sizeof(int));
     int res = 0;
     sem_t sem;
-    for(int i = myparam->start; i < myparam->start+myparam->len; i++){    
+    for(int i = myparam->start; i < myparam->start+myparam->len; i++){
         res = myparam->image[i];
+        tmp_histo[res] += 1;
+    }
+    for(int i = 0; i < 256; i++){
         sem = sems[res];
         sem_wait(&sem); //sem --
-        myparam->histo[res] += 1;
-        sem_post(&sem); //sem++ 
+        myparam->histo[i] += tmp_histo[i];
+        sem_post(&sem); //sem++
     }
+    free(tmp_histo);
     return NULL;
 }
 
@@ -185,7 +190,7 @@ int main(int argc, char *argv[]){
     }
     for(int i = 0; i<256; i++){
         //sem_unlink("sems[i]"); //for mac
-        sem_init(&sems[i], 0, 1); //for gcc
+        sem_destroy(&sems[i]); //for gcc
     }
     //histogram(histo, image);
     /* Do your thing here */
