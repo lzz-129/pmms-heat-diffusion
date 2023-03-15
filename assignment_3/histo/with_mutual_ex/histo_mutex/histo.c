@@ -62,17 +62,17 @@ void read_image(const char * image_path, int num_rows, int num_cols, int * image
 }
 
 void print_histo(int * histo){
-    //int sum = 0;
+    int sum = 0;
 	for (int i = 0; i < 256; ++i)
 	{	
 		if(i != 0 && (i % 10 == 0)) {
             printf("\n");
         }
 		printf("%d ", histo[i]);
-        //sum += histo[i];
+        sum += histo[i];
 	}
     printf("\n");
-    //printf("sum:%d\n", sum);
+    printf("sum:%d\n", sum);
 }
 
 void print_image(int num_rows, int num_cols, int * image){
@@ -89,13 +89,19 @@ void print_image(int num_rows, int num_cols, int * image){
 void* histogram(void* p_data){
     //TODO: For Students
     struct param* myparam = (struct param*) p_data;
+    int * tmp_histo = (int *) calloc(256, sizeof(int));
     int res = 0;
-    pthread_mutex_lock(&mutex);
     for(int i = myparam->start; i < myparam->start+myparam->len; i++){
         res = myparam->image[i];
-        myparam->histo[res] += 1;
+        tmp_histo[res] += 1;
+    }
+    pthread_mutex_lock(&mutex);
+    for(int i = 0; i < 256; i++){
+        if(tmp_histo[i]==0) continue;
+        myparam->histo[i] += tmp_histo[i];
     }
     pthread_mutex_unlock(&mutex);
+    free(tmp_histo);
     return NULL;
 }
 

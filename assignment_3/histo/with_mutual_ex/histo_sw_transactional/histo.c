@@ -86,15 +86,19 @@ void* histogram(void* p_data){
     //TODO: For Students
     struct param* myparam = (struct param*) p_data;
     int res = 0;
-    
+    int * tmp_histo = (int *) calloc(256, sizeof(int));
     for(int i = myparam->start; i < myparam->start+myparam->len; i++){
+        res = myparam->image[i];
+        tmp_histo[res] += 1;
+    }
+    for(int i = 0;i<256;i++){
+        if(tmp_histo[i]==0) continue;
         __transaction_atomic{
-            res = myparam->image[i];
-        myparam->histo[res] += 1;
+            myparam->histo[i] += tmp_histo[i];
         }
         
     }
-    
+    free(tmp_histo);
     return NULL;
 }
 
