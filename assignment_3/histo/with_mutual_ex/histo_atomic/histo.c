@@ -93,6 +93,7 @@ void* histogram(void* p_data){
        //__sync_fetch_and_add((myparam->histo)+res, 1);
     }
     for(int i = 0; i < 256; i++){
+        if(tmp_histo[i]==0) continue;
         __sync_fetch_and_add((myparam->histo)+i, tmp_histo[i]);
     }
     free(tmp_histo);

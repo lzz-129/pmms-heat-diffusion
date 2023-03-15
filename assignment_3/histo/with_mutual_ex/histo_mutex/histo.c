@@ -97,6 +97,7 @@ void* histogram(void* p_data){
     }
     pthread_mutex_lock(&mutex);
     for(int i = 0; i < 256; i++){
+        if(tmp_histo[i]==0) continue;
         myparam->histo[i] += tmp_histo[i];
     }
     pthread_mutex_unlock(&mutex);

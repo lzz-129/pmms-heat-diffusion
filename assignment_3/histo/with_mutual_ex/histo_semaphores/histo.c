@@ -95,6 +95,7 @@ void* histogram(void* p_data){
         tmp_histo[res] += 1;
     }
     for(int i = 0; i < 256; i++){
+        if(tmp_histo[i]==0) continue;
         sem = sems[res];
         sem_wait(&sem); //sem --
         myparam->histo[i] += tmp_histo[i];
