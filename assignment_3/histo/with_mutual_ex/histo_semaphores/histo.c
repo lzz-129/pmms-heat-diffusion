@@ -14,7 +14,8 @@ struct param{
     int start;
     int len;
 };
-sem_t sems[256];
+
+sem_t sem;
 
 void die(const char *msg){
     if (errno != 0) 
@@ -88,12 +89,11 @@ void* histogram(void* p_data){
     //TODO: For Students
     struct param* myparam = (struct param*) p_data;
     int res = 0;
-    sem_t sem;
     for(int i = myparam->start; i < myparam->start+myparam->len; i++){    
         res = myparam->image[i];
-        sem = sems[res];
         sem_wait(&sem); //sem --
         myparam->histo[res] += 1;
+        usleep(20);
         sem_post(&sem); //sem++ 
     }
     return NULL;
@@ -163,10 +163,9 @@ int main(int argc, char *argv[]){
     int seg = (int) num_cols*num_rows/num_threads;
     struct param* my_param;
     pthread_t threads[num_threads];
-    for(int i = 0; i<256; i++){
-        sem_init(&sems[i], 0, 1);
-        //sem_open("sem[i]", O_CREAT|O_EXCL, S_IRWXU, 0);
-    }
+    
+    sem_init(&sem, 0, 1); //for gcc
+    //sem_open("sem", O_CREAT|O_EXCL, S_IRWXU, 0); //for mac
     for(int t = 0; t<num_threads; t++){
         my_param = (struct param*)malloc(sizeof(struct param));
         my_param->histo = histo;
@@ -183,10 +182,8 @@ int main(int argc, char *argv[]){
     for(int t = 0; t<num_threads; t++){
         pthread_join(threads[t], NULL);
     }
-    for(int i = 0; i<256; i++){
-        //sem_unlink("sems[i]"); //for mac
-        sem_init(&sems[i], 0, 1); //for gcc
-    }
+    sem_destroy(&sem); //for gcc
+    //sem_unlink("sem");
     //histogram(histo, image);
     /* Do your thing here */
 
