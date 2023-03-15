@@ -62,17 +62,17 @@ void read_image(const char * image_path, int num_rows, int num_cols, int * image
 }
 
 void print_histo(int * histo){
-    int sum = 0;
+    //int sum = 0;
 	for (int i = 0; i < 256; ++i)
 	{	
 		if(i != 0 && (i % 10 == 0)) {
             printf("\n");
         }
 		printf("%d ", histo[i]);
-        sum += histo[i];
+        //sum += histo[i];
 	}
     printf("\n");
-    printf("sum:%d\n", sum);
+    //printf("sum:%d\n", sum);
 }
 
 void print_image(int num_rows, int num_cols, int * image){
