@@ -1,44 +1,44 @@
-#include <time.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <getopt.h>
-#include <stdio.h>
-#include <ctype.h>
-#include <pthread.h>
+#include <errno.h>
 #include <limits.h>
-
-#include <sys/time.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <pthread.h>
 #include <sys/resource.h>
+#include <unistd.h>
 
-#define BUFSIZE 10
-#define EMPTYSYMBOL -1
-#define ENDSYMBOL -2
-#define THREADSTACK (BUFSIZE * sizeof(int) + 2048)
-
-struct thread_parameters
-{
-    int number;
-    int *buf;
-    // pthread_spinlock_t *buf_lock;
-    pthread_mutex_t *buf_lock;
-    pthread_cond_t *item;
-    pthread_cond_t *space;
-    int *occupied;
+enum {
+    CONSUMED = -1,
+    END = -2,
+    BUF_SIZE = 96
 };
 
-static void *thread_main(void *args);
-static void *output_thread_main(void *args);
+typedef struct {
+    int *buf;
+    pthread_mutex_t *lock;
+    pthread_cond_t *item;
+    pthread_cond_t *space;
+} buf_set_t;
 
-int main(int argc, char *argv[]){
-    int c;
-    int seed = 42;
+typedef struct {
+    buf_set_t input;
+    buf_set_t output;
+} inout_set_t;
+
+static void *comparator(void *inout_set);
+static void *outputter(void *output);
+
+int main(int argc, char *argv[])
+{
+    // Set limit of the number of threads
+    struct rlimit rl = {0};
+    getrlimit(RLIMIT_NPROC, &rl);
+    rl.rlim_cur = rl.rlim_max;
+    setrlimit(RLIMIT_NPROC, &rl);
+    // Argument
+    unsigned seed = 42;
     long length = 1e4;
-
-    struct timespec before;
-    struct timespec after;
-
-    /* Read command-line options. */
-    while((c = getopt(argc, argv, "l:s:")) != -1) {
+    for (int c = getopt(argc, argv, "l:s:"); c != -1; c = getopt(argc, argv, "l:s:")) {
         switch(c) {
             case 'l':
                 length = atol(optarg);
@@ -53,366 +53,238 @@ int main(int argc, char *argv[]){
                 return -1;
         }
     }
-
-    /* Seed such that we can always reproduce the same random vector */
     srand(seed);
-
-    /* set the maximum number of processes (set to hard limit) */
-    struct rlimit rl;
-    getrlimit(RLIMIT_NPROC, &rl);
-    rl.rlim_cur = rl.rlim_max;
-    setrlimit(RLIMIT_NPROC, &rl);
-
-
-    /* for successor */
-    pthread_t tid;
-    int seccessor_created = 0;
-    int buf_successor[BUFSIZE];
-    pthread_mutex_t buf_lock_successor = PTHREAD_MUTEX_INITIALIZER;
-    pthread_cond_t item_successor = PTHREAD_COND_INITIALIZER;
-    pthread_cond_t space_successor = PTHREAD_COND_INITIALIZER;
-    int occupied_successor = 0;
-    /* successor thread */
-    pthread_attr_t attrs;
-    pthread_attr_init(&attrs);
-    pthread_attr_setstacksize(&attrs, (PTHREAD_STACK_MIN > THREADSTACK)?PTHREAD_STACK_MIN:THREADSTACK);    
-
-    /* init sucessor parameter */
-    struct thread_parameters tp_successor = {
-        .buf = buf_successor, .buf_lock = &buf_lock_successor, .item = &item_successor, .space = &space_successor, .occupied = &occupied_successor
+    // Thread setting
+    int buf[(length + 1) * BUF_SIZE];
+    pthread_mutex_t lock[(length + 1) * BUF_SIZE];
+    pthread_cond_t item[length + 1];
+    pthread_cond_t space[length + 1];
+    for (long i = 0; i < (length + 1) * BUF_SIZE; ++i) {
+        buf[i] = CONSUMED;
+        pthread_mutex_init(&lock[i], NULL);
+    }
+    for (long i = 0; i < length + 1; ++i) {
+        pthread_cond_init(&item[i], NULL);
+        pthread_cond_init(&space[i], NULL);
+    }
+    int (*buf_block)[length + 1][BUF_SIZE] = (int (*)[length + 1][BUF_SIZE])buf;
+    pthread_mutex_t (*lock_block)[length + 1][BUF_SIZE] = (pthread_mutex_t (*)[length + 1][BUF_SIZE])lock;
+    inout_set_t inout_set[length];
+    for (long i = 0; i < length; ++i) {
+        inout_set[i].input.buf = (*buf_block)[i];
+        inout_set[i].input.lock = (*lock_block)[i];
+        inout_set[i].input.item = &item[i];
+        inout_set[i].input.space = &space[i];
+        inout_set[i].output.buf = (*buf_block)[i + 1];
+        inout_set[i].output.lock = (*lock_block)[i + 1];
+        inout_set[i].output.item = &item[i + 1];
+        inout_set[i].output.space = &space[i + 1];
+    }
+    buf_set_t buf_set = {
+        .buf = (*buf_block)[length],
+        .lock = (*lock_block)[length],
+        .item = &item[length],
+        .space = &space[length]
     };
-
-    /* timer start */
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN);
+    pthread_t comparator_thread[length];
+    pthread_t successor_thread;
+    // Create threads
+    for (long i = 0; i < length; ++i) {
+        if (pthread_create(&comparator_thread[i], &attr, comparator, &inout_set[i])) {
+            perror("Creating comparator");
+            // Destroy attr, mutex and cond
+            pthread_attr_destroy(&attr);
+            for (long i = 0; i < (length + 1) * BUF_SIZE; ++i)
+                pthread_mutex_destroy(&lock[i]);
+            for (long i = 0; i < length + 1; ++i) {
+                pthread_cond_destroy(&item[i]);
+                pthread_cond_destroy(&space[i]);
+            }
+            return 1;
+        }
+    }
+    if (pthread_create(&successor_thread, &attr, outputter, &buf_set)) {
+        perror("Creating outputter");
+        // Destroy attr, mutex and cond
+        pthread_attr_destroy(&attr);
+        for (long i = 0; i < (length + 1) * BUF_SIZE; ++i)
+            pthread_mutex_destroy(&lock[i]);
+        for (long i = 0; i < length + 1; ++i) {
+            pthread_cond_destroy(&item[i]);
+            pthread_cond_destroy(&space[i]);
+        }
+        return 1;
+    }
+    int *input = &buf[0];
+    pthread_mutex_t *input_lock = &lock[0];
+    // Calculation start
+    struct timespec before = {0};
     clock_gettime(CLOCK_MONOTONIC, &before);
-    for(int i = 0; i < length; ++i){
-        int buf_number = rand();
-        if(!seccessor_created){
-            tp_successor.number = buf_number;
-            for(int i = 0; i < BUFSIZE; ++i) buf_successor[i] = EMPTYSYMBOL;
-            if(pthread_create(&tid, &attrs, &thread_main, &tp_successor)){
-                perror("create successor thread");
-                fflush(stdout);
-            }
-            seccessor_created = 1;
-        }else{
-            pthread_mutex_lock(&buf_lock_successor);
-            if(occupied_successor == BUFSIZE){
-                pthread_cond_wait(&space_successor, &buf_lock_successor);
-            }
-            for(int i = 0; i < BUFSIZE; ++i){
-                if(buf_successor[i] == EMPTYSYMBOL){
-                    buf_successor[i] = buf_number;
-                    // printf("put number = %d, occupied = %d\n", buf_number, occupied_successor);
-                    fflush(stdout);
-                    buf_number = EMPTYSYMBOL;
-                    ++occupied_successor;
-                    break;
-                }
-            }
-            pthread_cond_signal(&item_successor);
-            pthread_mutex_unlock(&buf_lock_successor);
-        }
-        
+    for (long i = 0; i < length; ++i) {
+        pthread_mutex_lock(input_lock);
+        if (*input != CONSUMED)
+            pthread_cond_wait(&space[0], input_lock);
+        *input = rand();
+        pthread_cond_signal(&item[0]);
+        pthread_mutex_unlock(input_lock);
+        input = &buf[0] + (input - &buf[0] + 1) % BUF_SIZE;
+        input_lock = &lock[0] + (input_lock - &lock[0] + 1) % BUF_SIZE;
     }
-
-    /* insert end symbol when buffer is clear */
-    if(length > 0){
-        /* insert end symbol two time */
-        for(int round = 0; round < 2; ++round){
-            pthread_mutex_lock(&buf_lock_successor);
-            while(occupied_successor > 0){
-                pthread_cond_wait(&space_successor, &buf_lock_successor);
-            }
-            buf_successor[0] = ENDSYMBOL;
-            ++occupied_successor;
-            pthread_cond_signal(&item_successor);
-            pthread_mutex_unlock(&buf_lock_successor);
-
-            // int buf_empty = 0;
-            // do{
-            //     buf_empty = 1;
-            //     for(int i = 0; i < BUFSIZE; ++i){
-            //         pthread_spin_lock(&buf_lock_successor);
-            //         if(buf_successor[i] != EMPTYSYMBOL){
-            //             buf_empty = 0;
-            //             pthread_spin_unlock(&buf_lock_successor);
-            //             break;
-            //         }
-            //         pthread_spin_unlock(&buf_lock_successor);
-            //     }
-            // }while(!buf_empty);
-            // /* put end symbol when buf is empty */
-            // pthread_spin_lock(&buf_lock_successor);
-            // buf_successor[0] = ENDSYMBOL;
-            // pthread_spin_unlock(&buf_lock_successor);
-        }
+    for (int i = 0; i < 2; ++i) {
+        pthread_mutex_lock(input_lock);
+        if (*input != CONSUMED)
+            pthread_cond_wait(&space[0], input_lock);
+        *input = END;
+        pthread_cond_signal(&item[0]);
+        pthread_mutex_unlock(input_lock);
+        input = &buf[0] + (input - &buf[0] + 1) % BUF_SIZE;
+        input_lock = &lock[0] + (input_lock - &lock[0] + 1) % BUF_SIZE;
     }
-
-    /* free */
-    if(seccessor_created){
-        pthread_join(tid, NULL);
-        pthread_mutex_destroy(&buf_lock_successor);
-    }
-
-    /* timer end */
+    for (long i = 0; i < length; ++i)
+        pthread_join(comparator_thread[i], NULL);
+    pthread_join(successor_thread, NULL);
+    struct timespec after = {0};
     clock_gettime(CLOCK_MONOTONIC, &after);
+    // Destroy attr, mutex and cond
+    pthread_attr_destroy(&attr);
+    for (long i = 0; i < (length + 1) * BUF_SIZE; ++i)
+        pthread_mutex_destroy(&lock[i]);
+    for (long i = 0; i < length + 1; ++i) {
+        pthread_cond_destroy(&item[i]);
+        pthread_cond_destroy(&space[i]);
+    }
+    // Print result
     double time = (double)(after.tv_sec - before.tv_sec) +
                   (double)(after.tv_nsec - before.tv_nsec) / 1e9;
-
     printf("Pipesort took: % .6e seconds \n", time);
-
-
     return 0;
 }
-static void *thread_main(void *args)
+
+static void *comparator(void *inout_set)
 {
-    struct thread_parameters *tp = (struct thread_parameters *)args;
-    int number = tp->number;
-    int *buf = tp->buf;
-    pthread_mutex_t *buf_lock = tp->buf_lock;
-    pthread_cond_t *item = tp->item;
-    pthread_cond_t *space = tp->space;
-    int *occupied = tp->occupied;
-
-    /* for successor */
-    pthread_t tid;
-    int seccessor_created = 0;
-    int buf_successor[BUFSIZE];
-    pthread_mutex_t buf_lock_successor = PTHREAD_MUTEX_INITIALIZER;
-    pthread_cond_t item_successor = PTHREAD_COND_INITIALIZER;
-    pthread_cond_t space_successor = PTHREAD_COND_INITIALIZER;
-    int occupied_successor = 0;
-    /* successor thread */
-    pthread_attr_t attrs;
-    pthread_attr_init(&attrs);
-    pthread_attr_setstacksize(&attrs, (PTHREAD_STACK_MIN > THREADSTACK)?PTHREAD_STACK_MIN:THREADSTACK);
-
-    /* init sucessor parameter */
-    struct thread_parameters tp_successor = {
-        .buf = buf_successor, .buf_lock = &buf_lock_successor, .item = &item_successor, .space = &space_successor, .occupied = &occupied_successor
-    };
-
-    while(1){
-        /* get the number from buffer */
-        int buf_number = EMPTYSYMBOL;
-        pthread_mutex_lock(buf_lock);
-        // while(occupied == 0){
-        if(*occupied == 0){
-            // printf("wait here\n");
-            // fflush(stdout);
-            pthread_cond_wait(item, buf_lock);
+    inout_set_t *io_set = inout_set;
+    buf_set_t *in_set = &io_set->input;
+    buf_set_t *out_set = &io_set->output;
+    int *input = in_set->buf;
+    int *output = out_set->buf;
+    pthread_mutex_t *input_lock = in_set->lock;
+    pthread_mutex_t *output_lock = out_set->lock;
+    // First element
+    pthread_mutex_lock(input_lock);
+    if (*input == CONSUMED)
+        pthread_cond_wait(in_set->item, input_lock);
+    int buf = *input;
+    *input = CONSUMED;
+    pthread_cond_signal(in_set->space);
+    pthread_mutex_unlock(input_lock);
+    input = in_set->buf + (input - in_set->buf + 1) % BUF_SIZE;
+    input_lock = in_set->lock + (input_lock - in_set->lock + 1) % BUF_SIZE;
+    // Other elements
+    pthread_mutex_lock(input_lock);
+    if (*input == CONSUMED)
+        pthread_cond_wait(in_set->item, input_lock);
+    pthread_mutex_lock(output_lock);
+    if (*output != CONSUMED)
+        pthread_cond_wait(out_set->space, output_lock);
+    while (*input != END) {
+        if (*input <= buf) {
+            *output = *input;
+            pthread_cond_signal(out_set->item);
+            pthread_mutex_unlock(output_lock);
+            *input = CONSUMED;
+            pthread_cond_signal(in_set->space);
+            pthread_mutex_unlock(input_lock);
+        } else {
+            *output = buf;
+            pthread_cond_signal(out_set->item);
+            pthread_mutex_unlock(output_lock);
+            buf = *input;
+            *input = CONSUMED;
+            pthread_cond_signal(in_set->space);
+            pthread_mutex_unlock(input_lock);
         }
-        for(int i = 0; i < BUFSIZE; ++i){
-            if(buf[i] != EMPTYSYMBOL){
-                buf_number = buf[i];
-                buf[i] = EMPTYSYMBOL;
-                fflush(stdout);
-                --(*occupied);
-                // printf("get number = %d, occupied = %d\n", buf_number, *occupied);
-                break;
-            }
-        }
-        // printf("number = %d\n", number);
-        // fflush(stdout);
-        pthread_cond_signal(space);
-        pthread_mutex_unlock(buf_lock);
-        // do{
-        //     for(int i = 0; i < BUFSIZE; ++i){
-        //         pthread_spin_lock(buf_lock);
-        //         buf_number = buf[i];
-        //         buf[i] = EMPTYSYMBOL;    /* also include clean end symbol */
-        //         pthread_spin_unlock(buf_lock);
-        //         if(buf_number != EMPTYSYMBOL) break;
-        //     }
-        // }while(buf_number == EMPTYSYMBOL);
-
-        /* break when found end symbol */
-        if(buf_number == ENDSYMBOL){
-            break;
-        }
-
-        /* large one stay */
-        if(number < buf_number){
-            int tmp = number;
-            number = buf_number;
-            buf_number = tmp;
-        }
-        if(!seccessor_created){
-            tp_successor.number = buf_number;
-            for(int i = 0; i < BUFSIZE; ++i) buf_successor[i] = EMPTYSYMBOL;
-            if(pthread_create(&tid, &attrs, &thread_main, &tp_successor)){
-                perror("create successor thread");
-                fflush(stdout);
-            }
-            seccessor_created = 1;
-        }else{
-            /* find the space to put number */
-            pthread_mutex_lock(&buf_lock_successor);
-            // while(occupied == 0){
-            if(occupied_successor == BUFSIZE){
-                pthread_cond_wait(&space_successor, &buf_lock_successor);
-            }
-            for(int i = 0; i < BUFSIZE; ++i){
-                if(buf_successor[i] == EMPTYSYMBOL){
-                    buf_successor[i] = buf_number;
-                    buf_number = EMPTYSYMBOL;
-                    ++occupied_successor;
-                    break;
-                }
-            }
-            pthread_cond_signal(&item_successor);
-            pthread_mutex_unlock(&buf_lock_successor);
-            // do{
-            //     for(int i = 0; i < BUFSIZE; ++i){
-            //         pthread_spin_lock(&buf_lock_successor);
-            //         if(buf_successor[i] == EMPTYSYMBOL){
-            //             buf_successor[i] = buf_number;
-            //             pthread_spin_unlock(&buf_lock_successor);
-            //             buf_number = EMPTYSYMBOL;
-            //             break;
-            //         }
-            //         pthread_spin_unlock(&buf_lock_successor);
-            //     }
-            // }while(buf_number != EMPTYSYMBOL);
-        }   
+        output = out_set->buf + (output - out_set->buf + 1) % BUF_SIZE;
+        output_lock = out_set->lock + (output_lock - out_set->lock + 1) % BUF_SIZE;
+        input = in_set->buf + (input - in_set->buf + 1) % BUF_SIZE;
+        input_lock = in_set->lock + (input_lock - in_set->lock + 1) % BUF_SIZE;
+        pthread_mutex_lock(input_lock);
+        if (*input == CONSUMED)
+            pthread_cond_wait(in_set->item, input_lock);
+        pthread_mutex_lock(output_lock);
+        if (*output != CONSUMED)
+            pthread_cond_wait(out_set->space, output_lock);
     }
-
-    /* create the output thread */
-    if(!seccessor_created){
-        tp_successor.number = number;
-        number = EMPTYSYMBOL;
-        for(int i = 0; i < BUFSIZE; ++i) buf_successor[i] = EMPTYSYMBOL;
-        if(pthread_create(&tid, &attrs, &output_thread_main, &tp_successor)){
-            perror("create output thread");
-            fflush(stdout);
-        }
-        seccessor_created = 1;
+    // First END
+    *output = *input;
+    pthread_cond_signal(out_set->item);
+    pthread_mutex_unlock(output_lock);
+    *input = CONSUMED;
+    pthread_cond_signal(in_set->space);
+    pthread_mutex_unlock(input_lock);
+    output = out_set->buf + (output - out_set->buf + 1) % BUF_SIZE;
+    output_lock = out_set->lock + (output_lock - out_set->lock + 1) % BUF_SIZE;
+    input = in_set->buf + (input - in_set->buf + 1) % BUF_SIZE;
+    input_lock = in_set->lock + (input_lock - in_set->lock + 1) % BUF_SIZE;
+    // Buf elements
+    while (buf != END) {
+        pthread_mutex_lock(input_lock);
+        if (*input == CONSUMED)
+            pthread_cond_wait(in_set->item, input_lock);
+        pthread_mutex_lock(output_lock);
+        if (*output != CONSUMED)
+            pthread_cond_wait(out_set->space, output_lock);
+        *output = buf;
+        pthread_cond_signal(out_set->item);
+        pthread_mutex_unlock(output_lock);
+        buf = *input;
+        *input = CONSUMED;
+        pthread_cond_signal(in_set->space);
+        pthread_mutex_unlock(input_lock);
+        output = out_set->buf + (output - out_set->buf + 1) % BUF_SIZE;
+        output_lock = out_set->lock + (output_lock - out_set->lock + 1) % BUF_SIZE;
+        input = in_set->buf + (input - in_set->buf + 1) % BUF_SIZE;
+        input_lock = in_set->lock + (input_lock - in_set->lock + 1) % BUF_SIZE;
     }
-    else{
-        /* put the end symbol to successor when all buffer clean */
-        pthread_mutex_lock(&buf_lock_successor);
-        while(occupied_successor > 0){
-            pthread_cond_wait(&space_successor, &buf_lock_successor);
-        }
-        buf_successor[0] = ENDSYMBOL;
-        ++occupied_successor;
-        pthread_cond_signal(&item_successor);
-        pthread_mutex_unlock(&buf_lock_successor);
-
-        /* put the end symbol to successor when all buffer clean */
-        // int buf_empty = 0;
-        // do{
-        //     buf_empty = 1;
-        //     for(int i = 0; i < BUFSIZE; ++i){
-        //         pthread_spin_lock(&buf_lock_successor);
-        //         if(buf_successor[i] != EMPTYSYMBOL){
-        //             buf_empty = 0;
-        //             pthread_spin_unlock(&buf_lock_successor);
-        //             break;
-        //         }
-        //         pthread_spin_unlock(&buf_lock_successor);
-        //     }
-        // }while(!buf_empty);
-        // pthread_spin_lock(&buf_lock_successor);
-        // buf_successor[0] = ENDSYMBOL;
-        // pthread_spin_unlock(&buf_lock_successor);
-    }
-    while(number != ENDSYMBOL){
-        /* get the number from buffer */
-        if(number == EMPTYSYMBOL){
-            pthread_mutex_lock(buf_lock);
-            // while(occupied == 0){
-            if(*occupied == 0){
-                pthread_cond_wait(item, buf_lock);
-            }
-            for(int i = 0; i < BUFSIZE; ++i){
-                if(buf[i] != EMPTYSYMBOL){
-                    number = buf[i];
-                    buf[i] = EMPTYSYMBOL;
-                    --(*occupied);
-                    break;
-                }
-            }
-            pthread_cond_signal(space);
-            pthread_mutex_unlock(buf_lock);
-        }
-        // while(number == EMPTYSYMBOL){
-        //     for(int i = 0; i < BUFSIZE; ++i){
-        //         pthread_spin_lock(buf_lock);
-        //         number = buf[i];
-        //         buf[i] = EMPTYSYMBOL;    /* also include clean end symbol */
-        //         pthread_spin_unlock(buf_lock);
-        //         if(number != EMPTYSYMBOL) break;
-        //     }
-        // }
-
-        /* put the number into buffer */
-        pthread_mutex_lock(&buf_lock_successor);
-        while(buf_successor[0] != EMPTYSYMBOL){
-            pthread_cond_wait(&space_successor, &buf_lock_successor);
-        }
-        buf_successor[0] = number;
-        if(number != ENDSYMBOL){
-            number = EMPTYSYMBOL;
-        }
-        ++occupied_successor;
-        pthread_cond_signal(&item_successor);
-        pthread_mutex_unlock(&buf_lock_successor);
-
-        // do{
-        //     pthread_spin_lock(&buf_lock_successor);
-        //     if(buf_successor[0] == EMPTYSYMBOL){
-        //         buf_successor[0] = number;
-        //         /* the end symbol should also be put in buffer */
-        //         if(number == ENDSYMBOL){
-        //             pthread_spin_unlock(&buf_lock_successor);
-        //             break;
-        //         }
-        //         number = EMPTYSYMBOL;
-        //     }
-        //     pthread_spin_unlock(&buf_lock_successor);
-        // }while(number != EMPTYSYMBOL);
-    }
-    // printf("thread end\n");
-    // fflush(stdout);
-    
-    if(seccessor_created){
-        pthread_join(tid, NULL);
-        pthread_mutex_destroy(&buf_lock_successor);
-    }
-    
+    // Second END
+    pthread_mutex_lock(output_lock);
+    if (*output != CONSUMED)
+        pthread_cond_wait(out_set->space, output_lock);
+    *output = buf;
+    pthread_cond_signal(out_set->item);
+    pthread_mutex_unlock(output_lock);
+    return NULL;
 }
-static void *output_thread_main(void *args)
+
+static void *outputter(void *buf_set)
 {
-    struct thread_parameters *tp = (struct thread_parameters *)args;
-    int number = tp->number;
-    int *buf = tp->buf;
-    pthread_mutex_t *buf_lock = tp->buf_lock;
-    pthread_cond_t *item = tp->item;
-    pthread_cond_t *space = tp->space;
-    int *occupied = tp->occupied;
-
-
-    // printf("%d ", number);
-    while(1){
-        int buf_number = EMPTYSYMBOL;
-        pthread_mutex_lock(buf_lock);
-        // while(occupied == 0){
-        if(buf[0] == EMPTYSYMBOL){
-            pthread_cond_wait(item, buf_lock);
+    buf_set_t *b_set = buf_set;
+    int *buf = b_set->buf;
+    pthread_mutex_t *lock = b_set->lock;
+    pthread_mutex_lock(lock);
+    if (*buf == CONSUMED)
+        pthread_cond_wait(b_set->item, lock);
+    *buf = CONSUMED;
+    pthread_cond_signal(b_set->space);
+    pthread_mutex_unlock(lock);
+    buf = b_set->buf + (buf - b_set->buf + 1) % BUF_SIZE;
+    lock = b_set->lock + (lock - b_set->lock + 1) % BUF_SIZE;
+    for (;;) {
+        pthread_mutex_lock(lock);
+        if (*buf == CONSUMED)
+            pthread_cond_wait(b_set->item, lock);
+        if (*buf == END) {
+            pthread_mutex_unlock(lock);
+            puts("");
+            return NULL;
         }
-        buf_number = buf[0];
-        buf[0] = EMPTYSYMBOL;
-        --(*occupied);
-        pthread_cond_signal(space);
-        pthread_mutex_unlock(buf_lock);
-
-        /* break when found end symbol */
-        if(buf_number == ENDSYMBOL){
-            break;
-        }
-        printf("%d ", buf_number);
+        printf("%d ", *buf);
+        *buf = CONSUMED;
+        pthread_cond_signal(b_set->space);
+        pthread_mutex_unlock(lock);
+        buf = b_set->buf + (buf - b_set->buf + 1) % BUF_SIZE;
+        lock = b_set->lock + (lock - b_set->lock + 1) % BUF_SIZE;
     }
-    // printf("print end\n");
-    // fflush(stdout);
 }

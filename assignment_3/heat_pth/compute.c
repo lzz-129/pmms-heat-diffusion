@@ -1,11 +1,11 @@
+#define _GNU_SOURCE
 #include <time.h>
 #include <math.h>
 #include <stdlib.h>
 #include <pthread.h>
-#include <semaphore.h>
 #include <error.h>
 #include <stdio.h>
-
+#include <unistd.h>
 #include <string.h>
 // #define GEN_PICTURES
 
@@ -23,6 +23,12 @@ static void do_draw(const struct parameters *p,
             draw_point(j-1, i-1, (*g)[i][j]);
     end_picture();
 }
+#endif
+
+#define DAS5CPU
+
+#ifdef DAS5CPU
+#define CPUNUM 32
 #endif
 
 static int fill_report_thread(const struct parameters *p, struct results *r,
@@ -125,6 +131,17 @@ void do_compute(const struct parameters *p, struct results *r)
     dst_g = (double *)&g1;
     c_g = (double *)&c;
 
+    /* cpu info */
+    #ifdef DAS5CPU
+    cpu_set_t cpuset[CPUNUM];
+    for(i = 0; i < CPUNUM; i++){
+        CPU_ZERO(&cpuset[i]);
+        CPU_SET(i, &cpuset[i]);;
+    }
+    /* set main */
+    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset[0]);
+    #endif
+
     /* create pthread */
     pthread_t tid[p->nthreads];
     struct thread_parameters tp[p->nthreads];
@@ -140,8 +157,10 @@ void do_compute(const struct parameters *p, struct results *r)
             tp[i].h_start = tp[i - 1].h_end;
         }
         tp[i].h_end = tp[i].h_start + p->N/p->nthreads + (int)((p->N%p->nthreads) > i);
-        // printf("start = %d\tend = %d\n", tp[i].h_start,tp[i].h_end);
         pthread_create(&tid[i], NULL, &thread_main, &tp[i]);
+        #ifdef DAS5CPU
+        pthread_setaffinity_np(tid[i], sizeof(cpu_set_t), &cpuset[i]);
+        #endif
     }
 
     for(i = 0; i < p->nthreads; i++){
@@ -195,8 +214,7 @@ static void *thread_main(void *args)
         pthread_mutex_unlock(&report_lock);
     }
 
-    for (iter = 1; iter <= maxiter; ++iter)
-    {
+    for (iter = 1; iter <= maxiter; ++iter){
         const int cnvg_idx = iter % num_threads;
 
         {void *tmp = src; src = dst; dst = tmp;}
