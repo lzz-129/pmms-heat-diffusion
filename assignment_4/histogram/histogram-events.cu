@@ -26,8 +26,29 @@ static void checkCudaCall(cudaError_t result) {
 
 
 __global__ void histogramKernel(unsigned char* image, long img_size, unsigned int* histogram, int hist_size) {
-// insert operation here
+    // insert operation here
+    __shared__ unsigned int s_histogram[512];
+    unsigned int tid = threadIdx.x + blockIdx.x * blockDim.x;
+    unsigned int offset = blockDim.x * gridDim.x;
 
+    s_histogram[threadIdx.x] = 0;
+    __syncthreads();
+
+    while(tid<img_size){
+        if(threadIdx.x < 256){
+            atomicAdd(&(s_histogram[image[tid]]), 1);
+        }else{
+            atomicAdd(&(s_histogram[image[tid]+256]),1);
+        }
+        tid += offset;
+    }
+    __syncthreads();
+
+    if(threadIdx.x < hist_size){
+        atomicAdd(&(histogram[threadIdx.x]), s_histogram[threadIdx.x]);
+    }else{
+        atomicAdd(&(histogram[threadIdx.x-256]), s_histogram[threadIdx.x]);
+    }
 }
 
 void histogramCuda(unsigned char* image, long img_size, unsigned int* histogram, int hist_size) {
