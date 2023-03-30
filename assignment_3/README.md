@@ -19,21 +19,15 @@ The CLI for the pipesort is as follows:
  You may extend the CLI, but not alter the behaviour of "l" and "s". Set any additional flags to the default you want us to use. 
 
 
-1) Assignment 3 - Histogram Testing: TODO
-
-    For correctness:
-        "- i ../../../images/pat1_100x150.pgm -n 150 -m 100 -g -p 2"
+## Histogram Testing: 
+For correctness:
+        `-i ../../../images/pat1_100x150.pgm -n 150 -m 100 -g -p 2`
         
-    For performance:
-        "- i ../../../images/pat1_5000x5000.pgm -n 5000 -m 5000 -p 16"
 
-2) Assignment 3 - Pipesort Testing:
-
-    For correctness:
-         "- l 1000 -s 42"
+## Pipesort Testing:
+For correctness:
+         `-l 4090 -s 42`
+                   
+If you really want to test your performance you can try even larger sequence lengths (up to say 50,000) but you may want to look at `man getrlimit` and/or increase your buffer sizes.
         
-    For performance:
-        "- l 50000 -s 42"
-        
-    To push your code we will use (comment: have to see if 1000000 is reasonable):
-        "- l 1000000 -s 42"
+  

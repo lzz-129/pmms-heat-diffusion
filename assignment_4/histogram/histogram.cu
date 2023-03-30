@@ -72,11 +72,44 @@ static void checkCudaCall(cudaError_t result) {
     }
 }
 
-
+/*with shared memory*/
 __global__ void histogramKernel(unsigned char* image, long img_size, unsigned int* histogram, int hist_size) {
-// insert operation here
+    // insert operation here
+    __shared__ unsigned int s_histogram[512];
+    unsigned int tid = threadIdx.x + blockIdx.x * blockDim.x;
+    unsigned int offset = blockDim.x * gridDim.x;
+    s_histogram[threadIdx.x] = 0;
+    __syncthreads();
 
+    while(tid<img_size){
+        if(threadIdx.x < hist_size){
+            atomicAdd(&(s_histogram[image[tid]]), 1);
+        }else{
+            atomicAdd(&(s_histogram[image[tid]+hist_size]),1);
+        }
+        tid += offset;
+    }    
+    __syncthreads();
+
+    if(threadIdx.x < hist_size){
+        atomicAdd(&(histogram[threadIdx.x]), s_histogram[threadIdx.x]);
+    }else{
+        atomicAdd(&(histogram[threadIdx.x-hist_size]), s_histogram[threadIdx.x]);
+    }
 }
+
+/*without shared memory*/
+/*
+__global__ void histogramKernel(unsigned char* image, long img_size, unsigned int* histogram, int hist_size) {     
+    // insert operation here                                                                      
+    unsigned int tid = threadIdx.x + blockIdx.x * blockDim.x;                                                      
+    unsigned int offset = blockDim.x * gridDim.x;                                                                                                                                                               
+    while(tid<img_size){                                                                                                                     atomicAdd(&(histogram[image[tid]]), 1);                                                              
+        tid += offset;                                                                                             
+    }    
+    __syncthreads();                                                                                               
+}
+*/
 
 void histogramCuda(unsigned char* image, long img_size, unsigned int* histogram, int hist_size) {
     int threadBlockSize = 512;
