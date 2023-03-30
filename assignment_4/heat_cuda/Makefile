@@ -11,7 +11,7 @@ INCLUDES=-I../../include
 
 ifndef DEBUG
 CFLAGS=-O2
-LIB=
+LIB=-Ofast -std=gnu99 -lm -pthread
 NVCCFLAGS=-O2
 else
 CFLAGS=-O0 -g3
